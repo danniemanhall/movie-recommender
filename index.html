@@ -1,0 +1,330 @@
+<title>Movie Night Picker</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column like a cinema listing board. Sticky filter bar, then titles as rows with rating buttons on the right. */
+:root {
+  --bg: #f2f0f6; --surface: #ffffff; --ink: #1d1a2b; --muted: #625d78; --line: #d8d4e3;
+  --accent: #8a5a00; --accent-soft: #f6e7c4;
+  --love: #b81f5a; --like: #17754c; --ok: #7a5c0e; --no: #4d4963; --on: #ffffff;
+  --display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15131f; --surface: #1f1c2c; --ink: #ecebf3; --muted: #a49fb9; --line: #353048;
+    --accent: #f2b84b; --accent-soft: #3a2f17;
+    --love: #f2709f; --like: #56c995; --ok: #dcbb5c; --no: #a19cb8; --on: #15131f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15131f; --surface: #1f1c2c; --ink: #ecebf3; --muted: #a49fb9; --line: #353048;
+  --accent: #f2b84b; --accent-soft: #3a2f17;
+  --love: #f2709f; --like: #56c995; --ok: #dcbb5c; --no: #a19cb8; --on: #15131f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 20px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 6vw, 40px); line-height: 1.05; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 60ch; }
+header { display: flex; flex-direction: column; gap: 10px; }
+.tally { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tally span b { font-family: var(--display); font-size: 20px; color: var(--accent); margin-right: 4px; }
+.notice { background: var(--accent-soft); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+details.limits { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+details.limits summary { cursor: pointer; padding: 12px 14px; font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+details.limits summary small { color: var(--muted); font-weight: 400; }
+.limits-body { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+.limit { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; align-items: center; }
+.limit > span { font-weight: 500; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button, .chips button, .rate button, .why button {
+  background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.seg button[aria-pressed="true"], .chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.fixed { color: var(--muted); font-size: 14px; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.bar-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.bar input[type="search"], .add input, .add select, .bar select {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.bar input[type="search"] { flex: 1 1 180px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.chips button { font-size: 14px; padding: 5px 11px; }
+
+section.group { display: flex; flex-direction: column; gap: 4px; }
+section.group h2 { padding-block: 6px; }
+ul.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+li.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.name { font-weight: 600; overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; display: block; }
+.rate { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+.rate button { font-size: 13.5px; padding: 6px 10px; }
+.rate button[data-r="love"][aria-pressed="true"] { background: var(--love); border-color: var(--love); color: var(--on); }
+.rate button[data-r="like"][aria-pressed="true"] { background: var(--like); border-color: var(--like); color: var(--on); }
+.rate button[data-r="ok"][aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: var(--on); }
+.rate button[data-r="no"][aria-pressed="true"] { background: var(--no); border-color: var(--no); color: var(--on); }
+.rate button[data-r="unseen"] { border-style: dashed; color: var(--muted); }
+.rate button[data-r="unseen"][aria-pressed="true"] { background: var(--line); border-style: solid; color: var(--ink); }
+.rate button.remove { border-color: transparent; color: var(--muted); text-decoration: underline; padding-inline: 4px; }
+li.row.done .name { color: var(--muted); }
+.why { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 13px; color: var(--muted); }
+.why button { font-size: 13px; padding: 4px 9px; }
+.why button[aria-pressed="true"] { background: var(--no); border-color: var(--no); color: var(--on); }
+.empty { color: var(--muted); padding: 18px 0; }
+
+form.add { display: flex; flex-wrap: wrap; gap: 8px; }
+form.add input { flex: 1 1 200px; }
+form.add button { background: var(--accent); color: var(--on); border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
+.addbox { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+
+@media (max-width: 640px) {
+  li.row { grid-template-columns: minmax(0, 1fr); }
+  .rate { justify-content: flex-start; }
+  .limit { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) { .rate button, .seg button { transition: background-color .12s, border-color .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Movie Night Picker</h1>
+    <p class="lede">Tap a rating for anything you have watched. Mark the rest as not seen, or leave them. Your answers save as you go and shape what gets recommended.</p>
+    <div class="tally" aria-live="polite">
+      <span><b id="n-rated">0</b>rated</span>
+      <span><b id="n-love">0</b>loved</span>
+      <span><b id="n-no">0</b>not for us</span>
+      <span><b id="n-left">0</b>still to go</span>
+    </div>
+    <p class="notice" id="notice" hidden></p>
+  </header>
+
+  <details class="limits" id="limits" open>
+    <summary>Where your line is <small>Used to filter out anything too much for you</small></summary>
+    <div class="limits-body">
+      <div class="limit"><span id="l-swearing">Swearing</span><div class="seg" data-key="swearing" role="group" aria-labelledby="l-swearing">
+        <button type="button" data-v="none">None at all</button><button type="button" data-v="mild">Mild only</button><button type="button" data-v="any">Don't mind</button></div></div>
+      <div class="limit"><span id="l-sex">Sex and nudity</span><div class="seg" data-key="sex" role="group" aria-labelledby="l-sex">
+        <button type="button" data-v="none">None at all</button><button type="button" data-v="implied">Implied only</button><button type="button" data-v="any">Don't mind</button></div></div>
+      <div class="limit"><span id="l-violence">Violence</span><div class="seg" data-key="violence" role="group" aria-labelledby="l-violence">
+        <button type="button" data-v="mild">Keep it mild</button><button type="button" data-v="action">Action is fine, no gore</button><button type="button" data-v="any">Don't mind</button></div></div>
+      <div class="limit"><span id="l-kids">Kids watching</span><div class="seg" data-key="kids" role="group" aria-labelledby="l-kids">
+        <button type="button" data-v="no">No</button><button type="button" data-v="sometimes">Sometimes</button><button type="button" data-v="usually">Usually</button></div></div>
+      <p class="fixed">Crude or vulgar humour is always filtered out.</p>
+    </div>
+  </details>
+
+  <div class="bar">
+    <div class="bar-row">
+      <input type="search" id="q" placeholder="Search titles" aria-label="Search titles">
+      <select id="status" aria-label="Show">
+        <option value="all">Show all</option>
+        <option value="todo">Still to rate</option>
+        <option value="rated">Already rated</option>
+      </select>
+    </div>
+    <div class="chips" id="chips" role="group" aria-label="Category"></div>
+  </div>
+
+  <main id="list"></main>
+
+  <div class="addbox">
+    <h2>Add a favourite that is missing</h2>
+    <form class="add" id="add">
+      <input type="text" id="add-title" placeholder="Title" aria-label="Title" maxlength="120" required>
+      <select id="add-kind" aria-label="Type"><option value="movie">Movie</option><option value="series">Series</option></select>
+      <button type="submit">Add title</button>
+    </form>
+  </div>
+</div>
+
+<script>
+const SECTIONS = [
+["Family and animation", [
+["Toy Story",1995,"m"],["Finding Nemo",2003,"m"],["Up",2009,"m"],["Inside Out",2015,"m"],["Coco",2017,"m"],["Frozen",2013,"m"],["Moana",2016,"m"],["Encanto",2021,"m"],["Zootopia",2016,"m"],["How to Train Your Dragon",2010,"m"],["Shrek",2001,"m"],["Paddington 2",2017,"m"],["The Lion King",1994,"m"],["Ratatouille",2007,"m"],["WALL-E",2008,"m"],["Kung Fu Panda",2008,"m"],["The Incredibles",2004,"m"],["Spider-Man: Into the Spider-Verse",2018,"m"],["The Wild Robot",2024,"m"],["Bluey",2018,"s"]]],
+["Feel-good and comedy", [
+["The Princess Bride",1987,"m"],["Mrs. Doubtfire",1993,"m"],["Home Alone",1990,"m"],["Elf",2003,"m"],["The Intern",2015,"m"],["School of Rock",2003,"m"],["Night at the Museum",2006,"m"],["Johnny English",2003,"m"],["The Secret Life of Walter Mitty",2013,"m"],["Ted Lasso",2020,"s"],["Friends",1994,"s"],["The Office (US)",2005,"s"],["Parks and Recreation",2009,"s"],["Brooklyn Nine-Nine",2013,"s"],["Modern Family",2009,"s"],["The Good Place",2016,"s"],["Abbott Elementary",2021,"s"],["Young Sheldon",2017,"s"],["The Big Bang Theory",2007,"s"],["Schitt's Creek",2015,"s"],["Only Murders in the Building",2021,"s"]]],
+["Romance, musicals and period drama", [
+["Pride & Prejudice",2005,"m"],["Sense and Sensibility",1995,"m"],["Little Women",2019,"m"],["Emma.",2020,"m"],["Notting Hill",1999,"m"],["You've Got Mail",1998,"m"],["The Proposal",2009,"m"],["Crazy Rich Asians",2018,"m"],["About Time",2013,"m"],["The Notebook",2004,"m"],["La La Land",2016,"m"],["The Greatest Showman",2017,"m"],["Mamma Mia!",2008,"m"],["Wicked",2024,"m"],["Downton Abbey",2010,"s"],["The Crown",2016,"s"],["Bridgerton",2020,"s"],["Call the Midwife",2012,"s"],["All Creatures Great and Small",2020,"s"],["Anne with an E",2017,"s"],["Virgin River",2019,"s"],["When Calls the Heart",2014,"s"]]],
+["Adventure and fantasy", [
+["The Lord of the Rings: The Fellowship of the Ring",2001,"m"],["The Hobbit: An Unexpected Journey",2012,"m"],["Harry Potter and the Philosopher's Stone",2001,"m"],["The Chronicles of Narnia: The Lion, the Witch and the Wardrobe",2005,"m"],["Pirates of the Caribbean: The Curse of the Black Pearl",2003,"m"],["Raiders of the Lost Ark",1981,"m"],["Jurassic Park",1993,"m"],["Jumanji: Welcome to the Jungle",2017,"m"],["National Treasure",2004,"m"],["Avatar",2009,"m"],["Star Wars: A New Hope",1977,"m"],["Dune",2021,"m"],["Wonka",2023,"m"],["The Mandalorian",2019,"s"],["Stranger Things",2016,"s"],["The Lord of the Rings: The Rings of Power",2022,"s"],["Percy Jackson and the Olympians",2023,"s"],["Avatar: The Last Airbender",2005,"s"],["Game of Thrones",2011,"s"]]],
+["Action and superheroes", [
+["The Avengers",2012,"m"],["Iron Man",2008,"m"],["Black Panther",2018,"m"],["Guardians of the Galaxy",2014,"m"],["Spider-Man: No Way Home",2021,"m"],["Wonder Woman",2017,"m"],["The Dark Knight",2008,"m"],["Top Gun: Maverick",2022,"m"],["Mission: Impossible - Fallout",2018,"m"],["Skyfall",2012,"m"],["The Bourne Identity",2002,"m"],["Gladiator",2000,"m"],["Fast Five",2011,"m"],["Mad Max: Fury Road",2015,"m"],["John Wick",2014,"m"],["Deadpool",2016,"m"],["Loki",2021,"s"],["Jack Ryan",2018,"s"],["Reacher",2022,"s"],["The Night Agent",2023,"s"]]],
+["Mystery, crime and thrillers", [
+["Knives Out",2019,"m"],["Murder on the Orient Express",2017,"m"],["Ocean's Eleven",2001,"m"],["Inception",2010,"m"],["Shutter Island",2010,"m"],["Sherlock",2010,"s"],["Agatha Christie's Poirot",1989,"s"],["Death in Paradise",2011,"s"],["Father Brown",2013,"s"],["Monk",2002,"s"],["The Mentalist",2008,"s"],["Broadchurch",2013,"s"],["Line of Duty",2012,"s"],["Suits",2011,"s"],["The Blacklist",2013,"s"],["Lupin",2021,"s"],["Money Heist",2017,"s"],["Breaking Bad",2008,"s"],["Ozark",2017,"s"],["Peaky Blinders",2013,"s"],["Squid Game",2021,"s"]]],
+["Drama and true stories", [
+["The Shawshank Redemption",1994,"m"],["Forrest Gump",1994,"m"],["The Blind Side",2009,"m"],["Hidden Figures",2016,"m"],["The Pursuit of Happyness",2006,"m"],["A Beautiful Mind",2001,"m"],["The King's Speech",2010,"m"],["The Imitation Game",2014,"m"],["Remember the Titans",2000,"m"],["Wonder",2017,"m"],["I Can Only Imagine",2018,"m"],["Green Book",2018,"m"],["Ford v Ferrari",2019,"m"],["Hacksaw Ridge",2016,"m"],["Dunkirk",2017,"m"],["1917",2019,"m"],["Schindler's List",1993,"m"],["Oppenheimer",2023,"m"],["The Queen's Gambit",2020,"s"],["This Is Us",2016,"s"],["The Chosen",2017,"s"],["Heartland",2007,"s"],["The Good Doctor",2017,"s"],["Grey's Anatomy",2005,"s"],["Band of Brothers",2001,"s"],["Chernobyl",2019,"s"],["Yellowstone",2018,"s"],["Succession",2018,"s"]]],
+["Science fiction", [
+["Interstellar",2014,"m"],["The Martian",2015,"m"],["Arrival",2016,"m"],["The Matrix",1999,"m"],["Back to the Future",1985,"m"],["E.T. the Extra-Terrestrial",1982,"m"],["The Truman Show",1998,"m"],["Star Trek",2009,"m"],["Ready Player One",2018,"m"],["Edge of Tomorrow",2014,"m"],["Doctor Who",2005,"s"],["Lost in Space",2018,"s"],["Andor",2022,"s"],["3 Body Problem",2024,"s"],["Black Mirror",2011,"s"]]],
+["Reality, competitions and documentaries", [
+["The Great British Bake Off",2010,"s"],["MasterChef Australia",2009,"s"],["Is It Cake?",2022,"s"],["Chef's Table",2015,"s"],["The Amazing Race",2001,"s"],["Taskmaster",2015,"s"],["Grand Designs",1999,"s"],["Clarkson's Farm",2021,"s"],["The Grand Tour",2016,"s"],["Formula 1: Drive to Survive",2019,"s"],["The Last Dance",2020,"s"],["Our Planet",2019,"s"],["Planet Earth II",2016,"s"],["Love Is Blind",2020,"s"],["Free Solo",2018,"m"]]],
+["South African", [
+["My Octopus Teacher",2020,"m"],["Invictus",2009,"m"],["Spud",2010,"m"],["Tsotsi",2005,"m"],["Mandela: Long Walk to Freedom",2013,"m"],["District 9",2009,"m"],["The Gods Must Be Crazy",1980,"m"],["Mr. Bones",2001,"m"],["Chasing the Sun",2020,"s"],["Shaka iLembe",2023,"s"],["Recipes for Love and Murder",2022,"s"],["Blood & Water",2020,"s"],["Catch Me a Killer",2024,"s"]]]
+];
+const RATES = [["love","Loved it"],["like","Liked it"],["ok","It was OK"],["no","Not for us"],["unseen","Not seen"]];
+const WHYS = [["crude","Too crude"],["sexual","Too sexual"],["swearing","Too much swearing"],["dark","Too violent or dark"],["taste","Just not our taste"]];
+const ADDED = "Added by you";
+
+const slug = s => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+const TITLES = {};            // id -> {id,title,year,kind,section,custom}
+SECTIONS.forEach(([sec, items]) => items.forEach(([title, year, k]) => {
+  const id = slug(title) + "-" + year;
+  TITLES[id] = { id, title, year, kind: k === "m" ? "movie" : "series", section: sec };
+}));
+const state = {};             // id -> stored doc body
+let settings = {};
+let db = null, activeSection = "All";
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+/* ---------- saving: one write at a time per document ---------- */
+const inflight = {}, queued = {};
+function save(path, body) {
+  if (!db) return;
+  queued[path] = body;
+  if (!inflight[path]) pump(path);
+}
+async function pump(path) {
+  inflight[path] = true;
+  while (path in queued) {
+    const body = queued[path]; delete queued[path];
+    try { body === null ? await db.doc(path).delete() : await db.doc(path).set(body); }
+    catch (e) { note(e && e.code === "invalid_argument" ? "You can view this page but not change ratings. Ask the owner for Contributor access." : "A rating did not save. Check your connection and tap it again."); }
+  }
+  delete inflight[path];
+}
+function note(msg) { const n = $("notice"); n.textContent = msg || ""; n.hidden = !msg; }
+
+/* ---------- rendering ---------- */
+function allItems() {
+  const customs = Object.keys(state).filter(id => state[id].custom && !TITLES[id])
+    .map(id => ({ id, title: state[id].title, year: state[id].year || null, kind: state[id].kind, section: ADDED, custom: true }));
+  return Object.values(TITLES).concat(customs);
+}
+function buildChips() {
+  const box = $("chips"); box.textContent = "";
+  const names = ["All"].concat(SECTIONS.map(s => s[0]));
+  if (allItems().some(t => t.custom)) names.push(ADDED);
+  if (!names.includes(activeSection)) activeSection = "All";
+  names.forEach(n => { const b = el("button", "", n); b.type = "button"; b.dataset.sec = n; b.setAttribute("aria-pressed", String(n === activeSection)); box.appendChild(b); });
+}
+function rowFor(t) {
+  const s = state[t.id] || {};
+  const li = el("li", "row" + (s.r ? " done" : "")); li.dataset.id = t.id;
+  const left = el("div");
+  left.appendChild(el("span", "name", t.title));
+  left.appendChild(el("span", "meta", (t.year ? t.year + " · " : "") + (t.kind === "movie" ? "Movie" : "Series")));
+  const rate = el("div", "rate"); rate.setAttribute("role", "group"); rate.setAttribute("aria-label", "Rate " + t.title);
+  RATES.forEach(([r, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.r = r; b.setAttribute("aria-pressed", String(s.r === r)); rate.appendChild(b); });
+  if (t.custom) { const x = el("button", "remove", "Remove"); x.type = "button"; x.dataset.remove = "1"; rate.appendChild(x); }
+  li.appendChild(left); li.appendChild(rate);
+  if (s.r === "no") {
+    const why = el("div", "why"); why.appendChild(el("span", "", "Why?"));
+    WHYS.forEach(([w, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.why = w; b.setAttribute("aria-pressed", String((s.why || []).includes(w))); why.appendChild(b); });
+    li.appendChild(why);
+  }
+  return li;
+}
+function render() {
+  const q = $("q").value.trim().toLowerCase(), status = $("status").value;
+  const items = allItems();
+  const list = $("list"); list.textContent = "";
+  let shown = 0;
+  const groups = SECTIONS.map(s => s[0]).concat([ADDED]);
+  groups.forEach(sec => {
+    if (activeSection !== "All" && activeSection !== sec) return;
+    const rows = items.filter(t => t.section === sec).filter(t => {
+      const rated = !!(state[t.id] && state[t.id].r);
+      if (status === "todo" && rated) return false;
+      if (status === "rated" && !rated) return false;
+      return !q || t.title.toLowerCase().includes(q);
+    });
+    if (!rows.length) return;
+    const g = el("section", "group"); g.appendChild(el("h2", "", sec));
+    const ul = el("ul", "rows"); rows.forEach(t => ul.appendChild(rowFor(t))); g.appendChild(ul);
+    list.appendChild(g); shown += rows.length;
+  });
+  if (!shown) list.appendChild(el("p", "empty", status === "todo" && !q ? "Nothing left to rate here." : "No titles match."));
+  const vals = items.map(t => state[t.id] && state[t.id].r).filter(Boolean);
+  $("n-rated").textContent = vals.filter(r => r !== "unseen").length;
+  $("n-love").textContent = vals.filter(r => r === "love").length;
+  $("n-no").textContent = vals.filter(r => r === "no").length;
+  $("n-left").textContent = items.length - vals.length;
+}
+function renderLimits() {
+  document.querySelectorAll(".seg").forEach(seg => seg.querySelectorAll("button").forEach(b =>
+    b.setAttribute("aria-pressed", String(settings[seg.dataset.key] === b.dataset.v))));
+}
+
+/* ---------- interactions ---------- */
+function findItem(id) { return TITLES[id] || allItems().find(t => t.id === id); }
+function setRating(id, change) {
+  const t = findItem(id); if (!t) return;
+  const prev = state[id] || {};
+  const next = Object.assign({ title: t.title, year: t.year || null, kind: t.kind, section: t.section }, t.custom ? { custom: true } : {}, { r: prev.r || null, why: prev.why || [] }, change, { at: Date.now() });
+  if (next.r !== "no") next.why = [];
+  if (!next.r && !t.custom) { delete state[id]; save("ratings/" + id, null); }
+  else { state[id] = next; save("ratings/" + id, next); }
+  render();
+}
+$("list").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const id = b.closest("li.row").dataset.id, cur = state[id] || {};
+  if (b.dataset.remove) { delete state[id]; save("ratings/" + id, null); buildChips(); render(); }
+  else if (b.dataset.r) setRating(id, { r: cur.r === b.dataset.r ? null : b.dataset.r });
+  else if (b.dataset.why) { const w = b.dataset.why, list = cur.why || []; setRating(id, { why: list.includes(w) ? list.filter(x => x !== w) : list.concat(w) }); }
+});
+$("chips").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; activeSection = b.dataset.sec; buildChips(); render(); });
+$("q").addEventListener("input", render);
+$("status").addEventListener("change", render);
+$("limits").addEventListener("click", e => {
+  const b = e.target.closest(".seg button"); if (!b) return;
+  settings = Object.assign({}, settings, { [b.parentElement.dataset.key]: b.dataset.v, at: Date.now() });
+  renderLimits(); save("settings/content", settings);
+});
+$("add").addEventListener("submit", e => {
+  e.preventDefault();
+  const title = $("add-title").value.trim(); if (!title) return;
+  const kind = $("add-kind").value;
+  const hit = Object.values(TITLES).find(t => t.title.toLowerCase() === title.toLowerCase());
+  if (hit) { activeSection = "All"; $("status").value = "all"; $("q").value = hit.title; buildChips(); render(); $("add-title").value = ""; return; }
+  const id = "c-" + (slug(title) || "title") + "-" + kind;
+  state[id] = { title, kind, section: ADDED, custom: true, r: "love", why: [], at: Date.now() };
+  save("ratings/" + id, state[id]);
+  $("add-title").value = ""; buildChips(); render();
+});
+
+/* ---------- boot ---------- */
+buildChips(); render(); renderLimits();
+(async () => {
+  db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+  if (!db) { note("Ratings cannot be saved in this view. Open the page signed in to Claude to keep your answers."); return; }
+  const slow = setTimeout(() => note("Your saved ratings have not loaded yet. Still trying."), 10000);
+  const ok = () => { clearTimeout(slow); if ($("notice").textContent.startsWith("Your saved")) note(""); };
+  const fail = () => { clearTimeout(slow); note("Saved ratings could not be loaded. Close and reopen the page to try again."); };
+  db.collection("ratings").limit(1000).onSnapshot(snap => {
+    if (!snap.metadata.fromCache) ok();
+    const seen = {};
+    snap.docs.forEach(d => { seen[d.id] = 1; const p = "ratings/" + d.id; if (!(p in queued) && !inflight[p]) state[d.id] = d.data(); });
+    Object.keys(state).forEach(id => { const p = "ratings/" + id; if (!seen[id] && !(p in queued) && !inflight[p]) delete state[id]; });
+    buildChips(); render();
+  }, fail);
+  db.doc("settings/content").onSnapshot(snap => {
+    if (inflight["settings/content"] || "settings/content" in queued) return;
+    settings = snap.exists ? snap.data() : {};
+    if (snap.exists && ["swearing", "sex", "violence", "kids"].every(k => settings[k])) $("limits").open = false;
+    renderLimits();
+  }, () => {});
+})();
+</script>
