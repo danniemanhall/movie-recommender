@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Build catalogue.json: titles streaming in South Africa, scored against the household's ratings.
 
-Usage: TMDB_API_KEY=... python3 tools/build_catalogue.py <ratings_dir> <out.json> [cache_dir]
+Usage: python3 tools/build_catalogue.py <ratings_dir> <out.json> [cache_dir]
 <ratings_dir> holds one JSON file per rated title, as exported from the page's database.
+
+Authentication: set TMDB_API_KEY to a v3 key, or leave it unset to send a placeholder bearer
+token, which works where the network proxy swaps in a saved TMDB Read Access Token.
 """
 import json, os, sys, glob, math, time, hashlib, re, datetime, urllib.request, urllib.parse, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 
-KEY = os.environ["TMDB_API_KEY"]
+KEY = os.environ.get("TMDB_API_KEY", "")
 RATINGS_DIR, OUT = sys.argv[1], sys.argv[2]
 CACHE = sys.argv[3] if len(sys.argv) > 3 else None
 API = "https://api.themoviedb.org/3"
@@ -30,16 +33,18 @@ LEVEL = {  # 0 all ages, 1 parental guidance, 2 teens, 3 mature
 }
 
 def get(path, **params):
-    params["api_key"] = KEY
+    if KEY:
+        params["api_key"] = KEY
     url = f"{API}{path}?{urllib.parse.urlencode(sorted(params.items()))}"
     cf = None
     if CACHE:
-        cf = os.path.join(CACHE, hashlib.sha1(url.replace(KEY, "").encode()).hexdigest() + ".json")
+        cf = os.path.join(CACHE, hashlib.sha1((url.replace(KEY, "") if KEY else url).encode()).hexdigest() + ".json")
         if os.path.exists(cf):
             return json.load(open(cf))
     for attempt in range(6):
         try:
-            with urllib.request.urlopen(url, timeout=40) as r:
+            req = urllib.request.Request(url, headers={} if KEY else {"Authorization": "Bearer placeholder"})
+            with urllib.request.urlopen(req, timeout=40) as r:
                 data = json.load(r)
             if cf:
                 json.dump(data, open(cf, "w"))
@@ -83,6 +88,8 @@ def resolve(r):
     best = res[0] if r.get("year") else max(exact or res[:5], key=lambda x: x.get("vote_count", 0))
     return dict(r, media=media, tmdb=best["id"])
 
+if not get("/configuration").get("images"):
+    sys.exit("TMDB did not answer. Check the saved token and that api.themoviedb.org is allowed.")
 ratings = pmap(resolve, load_ratings())
 missing = [r["title"] for r in ratings if not r["tmdb"]]
 print("rated:", len(ratings), "unresolved:", missing, file=sys.stderr)
@@ -225,6 +232,8 @@ for key, d in pmap(detail, short):
         item["doc"] = rated_keys[key]["doc"]       # marked "not seen" on the ratings tab
     items.append(item)
 
+if len(titles) < 2000 or len(items) < 600:
+    sys.exit(f"Too few titles came back ({len(titles)} streaming, {len(items)} scored), so the old catalogue is kept.")
 items.sort(key=lambda x: -x["s"])
 keep = [x for x in items if x["k"] == "movie"][:650] + [x for x in items if x["k"] == "series"][:450]
 keep.sort(key=lambda x: -x["s"])
