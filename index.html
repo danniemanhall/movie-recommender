@@ -99,6 +99,9 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 .count { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card .top { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; align-items: start; }
+.card .top > div:last-child { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.poster { width: 92px; aspect-ratio: 2 / 3; border-radius: 6px; background-color: var(--line); background-size: 600% 400%; background-repeat: no-repeat; }
 .card h3 { font-family: var(--display); font-size: 21px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
 .card .meta { font-size: 13.5px; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -367,7 +370,7 @@ const MOODS = [["any", "Anything"], ["comedy", "Comedy", ["Comedy"]], ["romance"
   ["drama", "Drama", ["Drama", "History", "War", "War & Politics"]], ["family", "Family and animation", ["Family", "Animation"]],
   ["scifi", "Sci-fi and fantasy", ["Science Fiction", "Fantasy", "Sci-Fi & Fantasy"]], ["real", "Documentary and reality", ["Documentary", "Reality"]]];
 const PICK_SECTION = "From your picks", PAGE = 6;
-let catalogue = null, catalogueFailed = false, hidden = {}, offset = 0, openCard = null;
+let catalogue = null, catalogueVersion = "", catalogueFailed = false, hidden = {}, offset = 0, openCard = null;
 let prefs = { type: "any", prov: ["nfx", "prv", "dnp", "dstv"], mood: "any", mature: false, recent: false, v: 2 };
 try { const saved = JSON.parse(localStorage.getItem("picker-prefs") || "{}"); if (saved.prov && saved.v !== 2) saved.prov.push("dstv"); Object.assign(prefs, saved, { v: 2 }); } catch (e) {}
 MOODS.forEach(([v, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.v = v; $("moods").appendChild(b); });
@@ -388,7 +391,14 @@ function pool() {
 }
 function listNames(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
 function cardFor(x) {
-  const c = el("article", "card"); c.dataset.id = x.id;
+  const card = el("article", "card"); card.dataset.id = x.id;
+  const top = el("div", "top"), poster = el("div", "poster"); let c = el("div");
+  if (x.ps) {
+    poster.style.backgroundImage = 'url("posters/' + String(x.ps[0]).padStart(2, "0") + ".jpg?v=" + catalogueVersion + '")';
+    poster.style.backgroundPosition = (x.ps[1] % 6) * 20 + "% " + Math.floor(x.ps[1] / 6) * (100 / 3) + "%";
+    poster.setAttribute("role", "img"); poster.setAttribute("aria-label", "Poster for " + x.t);
+  }
+  top.appendChild(poster); top.appendChild(c); card.appendChild(top);
   c.appendChild(el("h3", "", x.t));
   const len = x.k === "movie" ? (x.n ? Math.floor(x.n / 60) + "h " + String(x.n % 60).padStart(2, "0") + "m" : "") : (x.n ? x.n + (x.n === 1 ? " season" : " seasons") : "");
   c.appendChild(el("span", "meta", [x.y, x.k === "movie" ? "Movie" : "Series", len, x.g.slice(0, 2).join(", ")].filter(Boolean).join(" · ")));
@@ -397,18 +407,19 @@ function cardFor(x) {
   badges.appendChild(el("span", "badge" + (x.lv === 3 ? " mature" : ""), x.c ? "Rated " + x.c : "No age rating"));
   if (x.za && x.za !== x.c && x.za !== "PG13") badges.appendChild(el("span", "badge", "SA rating " + x.za));
   c.appendChild(badges);
+  c = card;
   const air = airings(x);
   if (air.length) { const p = el("p", "because", "On DStv: "); p.appendChild(el("b", "", airText(air[0]))); if (air[1]) p.appendChild(document.createTextNode(", then " + airText(air[1]))); c.appendChild(p); }
   if (x.o) c.appendChild(el("p", "plot", x.o));
-  if (x.b && x.b.length) { const p = el("p", "because", "Because you enjoyed "); p.appendChild(el("b", "", listNames(x.b))); c.appendChild(p); }
+  if (x.b && x.b.length) { const p = el("p", "because", "Because you enjoyed "); p.appendChild(el("b", "", listNames([...new Set(x.b)]))); c.appendChild(p); }
   const acts = el("div", "acts");
   if (openCard === x.id) RATES.slice(0, 4).forEach(([r, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.r = r; acts.appendChild(b); });
   else {
     const seen = el("button", "", "Seen it"); seen.type = "button"; seen.dataset.act = "seen"; acts.appendChild(seen);
     const skip = el("button", "quiet", "Not interested"); skip.type = "button"; skip.dataset.act = "skip"; acts.appendChild(skip);
   }
-  c.appendChild(acts);
-  return c;
+  card.appendChild(acts);
+  return card;
 }
 function renderPicks() {
   document.querySelectorAll("#controls .seg[data-pref] button").forEach(b => b.setAttribute("aria-pressed", String(prefs[b.parentElement.dataset.pref] === b.dataset.v)));
@@ -447,7 +458,7 @@ $("cards").addEventListener("click", e => {
   }
 });
 fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
-  catalogue = d.items;
+  catalogue = d.items; catalogueVersion = d.generated;
   $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv picks are titles airing on its channels over the following seven days, with times in South African time; DStv Stream's on-demand library and YouTube Premium are not covered. Age ratings are a guide, so check before you press play if a title sits near your line.";
   renderPicks();
 }).catch(() => { catalogueFailed = true; renderPicks(); });

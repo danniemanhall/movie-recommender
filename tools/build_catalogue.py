@@ -317,7 +317,7 @@ for key, d in pmap(detail, short):
     ka = sorted((k_aff[k["id"]] for k in kws if k["id"] in k_aff), key=abs, reverse=True)[:4]
     score = base_score(key, t) + 0.5 * sum(ka)
     date = d.get("release_date") or d.get("first_air_date") or ""
-    why = [n for _, n in sorted(because.get(key, []), reverse=True)[:3]]
+    why = list(dict.fromkeys(n for _, n in sorted(because.get(key, []), reverse=True)))[:3]
     item = {
         "id": ("m" if media == "movie" else "t") + str(key[1]), "t": d.get("title") or d.get("name"),
         "y": int(date[:4]) if date[:4].isdigit() else None, "k": "movie" if media == "movie" else "series",
@@ -325,7 +325,7 @@ for key, d in pmap(detail, short):
         "c": cert, "lv": level, "va": round(d.get("vote_average") or 0, 1),
         "o": clip((d.get("overview") or "").strip()), "s": round(score, 3), "b": why,
         "n": d.get("runtime") if media == "movie" else d.get("number_of_seasons"),
-        "d": date,
+        "d": date, "pp": d.get("poster_path"),
     }
     if t.get("dstv"):
         item["za"] = za
@@ -341,5 +341,56 @@ keep = [x for x in items if x["k"] == "movie"][:650] + [x for x in items if x["k
 kept_ids = {x["id"] for x in keep}
 keep += [x for x in items if "dstv" in x["p"] and x["id"] not in kept_ids][:350]
 keep.sort(key=lambda x: -x["s"])
+
+# ---------- 5. posters, packed into sheets so the page loads a few images rather than hundreds ----------
+SHEET_COLS, SHEET_ROWS, TILE_W, TILE_H = 6, 4, 154, 231
+def poster_sheets(items, out_dir):
+    try:
+        from PIL import Image
+    except ImportError:
+        print("posters: skipped, Pillow is not installed (pip install pillow)", file=sys.stderr); return {}
+    import io
+    def fetch(x):
+        if not x.get("pp"):
+            return None
+        cf = os.path.join(CACHE, "poster-" + x["pp"].strip("/")) if CACHE else None
+        if cf and os.path.exists(cf):
+            return open(cf, "rb").read()
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen("https://image.tmdb.org/t/p/w154" + x["pp"], timeout=30) as r:
+                    data = r.read()
+                if cf:
+                    open(cf, "wb").write(data)
+                return data
+            except Exception:
+                time.sleep(1 + attempt)
+        return None
+    blobs = pmap(fetch, items, workers=10)
+    os.makedirs(out_dir, exist_ok=True)
+    per, files, got = SHEET_COLS * SHEET_ROWS, {}, 0
+    for n in range(0, len(items), per):
+        sheet = Image.new("RGB", (SHEET_COLS * TILE_W, SHEET_ROWS * TILE_H), (40, 36, 56))
+        for i, (x, blob) in enumerate(zip(items[n:n + per], blobs[n:n + per])):
+            if not blob:
+                continue
+            try:
+                im = Image.open(io.BytesIO(blob)).convert("RGB").resize((TILE_W, TILE_H))
+            except Exception:
+                continue
+            sheet.paste(im, ((i % SHEET_COLS) * TILE_W, (i // SHEET_COLS) * TILE_H))
+            x["ps"] = [n // per, i]; got += 1
+        name = f"posters/{n // per:02d}.jpg"
+        sheet.save(os.path.join(os.path.dirname(out_dir), name), "JPEG", quality=72, optimize=True)
+        files[name] = name
+    print("posters:", got, "of", len(items), "in", len(files), "sheets", file=sys.stderr)
+    return files
+
+root = os.path.dirname(os.path.abspath(OUT))
+files = {"catalogue.json": os.path.basename(OUT)}
+files.update(poster_sheets(keep, os.path.join(root, "posters")))
+for x in keep:
+    x.pop("pp", None)
+json.dump(files, open(os.path.join(root, "publish_files.json"), "w"), indent=0)   # the `files` map for publishing
 json.dump({"generated": datetime.date.today().isoformat(), "items": keep}, open(OUT, "w"), ensure_ascii=False, separators=(",", ":"))
 print("kept:", len(keep), "bytes:", os.path.getsize(OUT), file=sys.stderr)
