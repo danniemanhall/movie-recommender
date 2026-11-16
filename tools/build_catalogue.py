@@ -57,6 +57,83 @@ def get(path, **params):
             time.sleep(1.5 * (attempt + 1))
     return {}
 
+# ---------- DStv: the public TV guide (the streaming catalogue is not readable from outside Africa) ----------
+DSTV = "https://www.dstv.com/umbraco/api/TvGuide"
+DSTV_DAYS = 7
+DSTV_CHANNELS = set("101 106 107 108 109 110 112 113 114 117 120 121 122 124 134 135 136 137 138 140 144 145 146 147 151 154 161 "
+                    "174 175 176 177 179 181 182 184 185 186 189 191 192 193 194 195".split())
+DSTV_SKIP_SUB = {"News", "Current Affairs", "Talk", "Game Show", "Sport", "Religion", "Music Mix", "All Music", "Adult Animation"}
+DSTV_LEVEL = {"Family": 0, "PG": 1, "PG13": 2, "13": 2, "16": 3, "18": 3}
+
+def dget(path, **params):
+    url = f"{DSTV}/{path}?{urllib.parse.urlencode(sorted(params.items()))}"
+    cf = os.path.join(CACHE, "dstv-" + hashlib.sha1(url.encode()).hexdigest() + ".json") if CACHE else None
+    if cf and os.path.exists(cf):
+        return json.load(open(cf))
+    for attempt in range(5):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36"})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                data = json.load(r)
+            if cf:
+                json.dump(data, open(cf, "w"))
+            return data
+        except Exception:
+            time.sleep(1.5 * (attempt + 1))
+    return {}
+
+def norm(title):
+    return re.sub(r"[^a-z0-9]+", "", re.sub(r"^(the|a|an) ", "", (title or "").lower().replace("&", "and")))
+
+def dstv_schedule():
+    """Titles airing on DStv entertainment channels in the coming week, matched to TMDB."""
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + datetime.timedelta(hours=2)          # South African time
+    groups = {}
+    for i in range(DSTV_DAYS):
+        day = (now + datetime.timedelta(days=i)).date().isoformat()
+        for ch in dget("GetProgrammes", d=day, country="zaf", unit="dstv").get("Channels") or []:
+            if ch["Number"] not in DSTV_CHANNELS:
+                continue
+            for p in ch["Programmes"]:
+                if p["StartTime"] < now.isoformat():
+                    continue
+                g = groups.setdefault((ch["Number"], p["Title"]), {"id": p["Id"], "air": []})
+                g["air"].append((p["StartTime"][:16], ch["Name"], ch["Number"]))
+    def look(item):
+        (num, _), g = item
+        d = dget("GetProgramme", id=g["id"])
+        if not d.get("Title"):
+            return None
+        main, sub = set(d.get("MainGenres") or []), set(d.get("SubGenres") or [])
+        if not main & {"Movies", "Series", "Shows", "Actuality"} or sub & DSTV_SKIP_SUB:
+            return None
+        kw = {k["Name"]: k["Value"] for k in d.get("Keywords") or [] if k.get("Value")}
+        year = next((x["Value"] for x in d.get("Items") or [] if x["Key"] == "Year"), None) or kw.get("Yearofrelease")
+        media = "movie" if "Movies" in main else "tv"
+        params = {"query": d["Title"]}
+        if media == "movie" and year and str(year).isdigit():
+            params["year"] = year
+        hit = None
+        for x in (get(f"/search/{media}", **params).get("results") or [])[:6]:
+            names = {norm(x.get("title") or x.get("name")), norm(x.get("original_title") or x.get("original_name"))}
+            if norm(d["Title"]) in names:
+                hit = x; break
+        if not hit or (media == "movie" and not params.get("year") and (hit.get("vote_count") or 0) < 50):
+            return None
+        return (media, hit["id"]), hit, d.get("Rating"), kw.get("fpb"), g["air"]
+    found = {}
+    for r in pmap(look, list(groups.items()), workers=5):
+        if not r:
+            continue
+        key, hit, rating, fpb, air = r
+        f = found.setdefault(key, {"hit": hit, "rating": rating, "fpb": fpb, "air": []})
+        f["air"] += air
+        if DSTV_LEVEL.get(rating, -1) > DSTV_LEVEL.get(f["rating"], -1):
+            f["rating"] = rating
+        f["fpb"] = f["fpb"] or fpb
+    print("dstv: programmes", len(groups), "matched titles", len(found), file=sys.stderr)
+    return found
+
 def pmap(fn, items, workers=12):
     with ThreadPoolExecutor(workers) as ex:
         return list(ex.map(fn, items))
@@ -143,6 +220,14 @@ for code, media, results in pmap(discover, jobs):
         t = titles.setdefault((media, x["id"]), dict(x, media=media, prov=set()))
         t["prov"].add(code)
 print("streaming titles:", len(titles), file=sys.stderr)
+dstv = {}
+try:
+    dstv = dstv_schedule()
+except Exception as e:                                   # DStv being down must not stop the refresh
+    print("dstv: skipped,", e, file=sys.stderr)
+for key, f in dstv.items():
+    t = titles.setdefault(key, dict(f["hit"], media=key[0], prov=set()))
+    t["prov"].add("dstv"); t["dstv"] = f
 
 def genre_score(t):
     gs = [g_aff.get((t["media"], g), 0.0) for g in t.get("genre_ids") or []]
@@ -169,6 +254,7 @@ for key, t in titles.items():
     cands.append((base_score(key, t), key))
 cands.sort(reverse=True)
 short = [k for _, k in cands if k[0] == "movie"][:1100] + [k for _, k in cands if k[0] == "tv"][:800]
+short += [k for _, k in cands if "dstv" in titles[k]["prov"] and k not in set(short)]
 
 # ---------- 4. details and content check ----------
 def cert_of(media, d):
@@ -209,6 +295,19 @@ for key, d in pmap(detail, short):
     if any(BLOCK_KEYWORDS.search(n) for n in kwnames) or (d.get("title") or d.get("name") or "").lower() in BLOCK_TITLES:
         continue
     cert, level = cert_of(media, d)
+    za = None
+    if t.get("dstv"):                                  # South African rating from the DStv guide
+        f = t["dstv"]; za = f["fpb"] or f["rating"]
+        marks = re.sub(r"\(.*?\)", "", re.sub(r"^[\d\-]*(PG)?", "", f["fpb"] or ""))
+        if "N" in marks or "H" in marks:
+            continue                                   # nudity or horror flagged by the Film and Publication Board
+        dl = DSTV_LEVEL.get(f["rating"])
+        if re.match(r"^1[68]", f["fpb"] or ""):
+            dl = 3
+        if dl is not None:
+            level = dl if level is None else max(level, dl)
+        if not cert and f["rating"]:
+            cert = "Family" if f["rating"] == "Family" else f["rating"].replace("PG13", "PG-13")
     gnames = {g["name"] for g in d.get("genres") or []}
     kiddie = gnames & {"Family", "Animation", "Kids"}
     if media == "tv" and (cert in ("TV-Y", "TV-Y7") or (level == 0 and kiddie)):
@@ -228,6 +327,9 @@ for key, d in pmap(detail, short):
         "n": d.get("runtime") if media == "movie" else d.get("number_of_seasons"),
         "d": date,
     }
+    if t.get("dstv"):
+        item["za"] = za
+        item["on"] = [list(a) for a in sorted(set(t["dstv"]["air"]))[:4]]
     if key in rated_keys:
         item["doc"] = rated_keys[key]["doc"]       # marked "not seen" on the ratings tab
     items.append(item)
@@ -236,6 +338,8 @@ if len(titles) < 2000 or len(items) < 600:
     sys.exit(f"Too few titles came back ({len(titles)} streaming, {len(items)} scored), so the old catalogue is kept.")
 items.sort(key=lambda x: -x["s"])
 keep = [x for x in items if x["k"] == "movie"][:650] + [x for x in items if x["k"] == "series"][:450]
+kept_ids = {x["id"] for x in keep}
+keep += [x for x in items if "dstv" in x["p"] and x["id"] not in kept_ids][:350]
 keep.sort(key=lambda x: -x["s"])
 json.dump({"generated": datetime.date.today().isoformat(), "items": keep}, open(OUT, "w"), ensure_ascii=False, separators=(",", ":"))
 print("kept:", len(keep), "bytes:", os.path.getsize(OUT), file=sys.stderr)

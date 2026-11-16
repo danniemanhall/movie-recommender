@@ -139,7 +139,7 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
       <div class="line"><span class="lab">Watch a</span><div class="seg" data-pref="type" role="group" aria-label="Type">
         <button type="button" data-v="any">Movie or series</button><button type="button" data-v="movie">Movie</button><button type="button" data-v="series">Series</button></div></div>
       <div class="line"><span class="lab">On</span><div class="seg" data-multi="prov" role="group" aria-label="Platform">
-        <button type="button" data-v="nfx">Netflix</button><button type="button" data-v="prv">Prime Video</button><button type="button" data-v="dnp">Disney+</button></div></div>
+        <button type="button" data-v="nfx">Netflix</button><button type="button" data-v="prv">Prime Video</button><button type="button" data-v="dnp">Disney+</button><button type="button" data-v="dstv">DStv</button></div></div>
       <div class="line"><span class="lab">In the mood for</span><div class="seg" data-pref="mood" id="moods" role="group" aria-label="Mood"></div></div>
       <div class="line"><span class="lab">Also</span><div class="seg" role="group" aria-label="Options">
         <button type="button" data-toggle="recent">New releases only</button><button type="button" data-toggle="mature">Include 16+ titles</button></div></div>
@@ -356,15 +356,20 @@ $("add").addEventListener("submit", e => {
 });
 
 /* ---------- tonight's picks ---------- */
-const PROV = { nfx: "Netflix", prv: "Prime Video", dnp: "Disney+" };
+const PROV = { nfx: "Netflix", prv: "Prime Video", dnp: "Disney+", dstv: "DStv" };
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// DStv airings are South African clock times. Keep only those still to come.
+function airings(x) { const now = Date.now(); return (x.on || []).filter(a => new Date(a[0] + ":00+02:00").getTime() + 3600000 > now); }
+function platforms(x) { return x.p.filter(p => p !== "dstv" || airings(x).length); }
+function airText(a) { const d = new Date(a[0] + ":00+02:00"), sa = new Date(d.getTime() + 7200000); return DAYS[sa.getUTCDay()] + " " + a[0].slice(11) + " on " + a[1] + " (" + a[2] + ")"; }
 const MOODS = [["any", "Anything"], ["comedy", "Comedy", ["Comedy"]], ["romance", "Romance", ["Romance"]],
   ["action", "Action and adventure", ["Action", "Adventure", "Action & Adventure"]], ["mystery", "Mystery and crime", ["Mystery", "Crime", "Thriller"]],
   ["drama", "Drama", ["Drama", "History", "War", "War & Politics"]], ["family", "Family and animation", ["Family", "Animation"]],
   ["scifi", "Sci-fi and fantasy", ["Science Fiction", "Fantasy", "Sci-Fi & Fantasy"]], ["real", "Documentary and reality", ["Documentary", "Reality"]]];
 const PICK_SECTION = "From your picks", PAGE = 6;
 let catalogue = null, catalogueFailed = false, hidden = {}, offset = 0, openCard = null;
-let prefs = { type: "any", prov: ["nfx", "prv", "dnp"], mood: "any", mature: false, recent: false };
-try { Object.assign(prefs, JSON.parse(localStorage.getItem("picker-prefs") || "{}")); } catch (e) {}
+let prefs = { type: "any", prov: ["nfx", "prv", "dnp", "dstv"], mood: "any", mature: false, recent: false, v: 2 };
+try { const saved = JSON.parse(localStorage.getItem("picker-prefs") || "{}"); if (saved.prov && saved.v !== 2) saved.prov.push("dstv"); Object.assign(prefs, saved, { v: 2 }); } catch (e) {}
 MOODS.forEach(([v, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.v = v; $("moods").appendChild(b); });
 
 function ratingDoc(item) { return item.doc || "t-" + item.id; }
@@ -374,7 +379,7 @@ function pool() {
     const s = state[ratingDoc(x)];
     if ((s && s.r && s.r !== "unseen") || hidden[x.id]) return false;
     if (prefs.type !== "any" && x.k !== prefs.type) return false;
-    if (!x.p.some(p => prefs.prov.includes(p))) return false;
+    if (!platforms(x).some(p => prefs.prov.includes(p))) return false;
     if (mood && mood[2] && !x.g.some(g => mood[2].includes(g))) return false;
     if (!prefs.mature && !(x.lv <= 2 && x.lv !== null)) return false;
     if (prefs.recent && !(x.y >= year - 1)) return false;
@@ -388,9 +393,12 @@ function cardFor(x) {
   const len = x.k === "movie" ? (x.n ? Math.floor(x.n / 60) + "h " + String(x.n % 60).padStart(2, "0") + "m" : "") : (x.n ? x.n + (x.n === 1 ? " season" : " seasons") : "");
   c.appendChild(el("span", "meta", [x.y, x.k === "movie" ? "Movie" : "Series", len, x.g.slice(0, 2).join(", ")].filter(Boolean).join(" · ")));
   const badges = el("div", "badges");
-  x.p.forEach(p => badges.appendChild(el("span", "badge where", PROV[p])));
+  platforms(x).forEach(p => badges.appendChild(el("span", "badge where", PROV[p])));
   badges.appendChild(el("span", "badge" + (x.lv === 3 ? " mature" : ""), x.c ? "Rated " + x.c : "No age rating"));
+  if (x.za && x.za !== x.c && x.za !== "PG13") badges.appendChild(el("span", "badge", "SA rating " + x.za));
   c.appendChild(badges);
+  const air = airings(x);
+  if (air.length) { const p = el("p", "because", "On DStv: "); p.appendChild(el("b", "", airText(air[0]))); if (air[1]) p.appendChild(document.createTextNode(", then " + airText(air[1]))); c.appendChild(p); }
   if (x.o) c.appendChild(el("p", "plot", x.o));
   if (x.b && x.b.length) { const p = el("p", "because", "Because you enjoyed "); p.appendChild(el("b", "", listNames(x.b))); c.appendChild(p); }
   const acts = el("div", "acts");
@@ -440,7 +448,7 @@ $("cards").addEventListener("click", e => {
 });
 fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
   catalogue = d.items;
-  $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv and YouTube Premium are not covered. Age ratings are a guide, so check before you press play if a title sits near your line.";
+  $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv picks are titles airing on its channels over the following seven days, with times in South African time; DStv Stream's on-demand library and YouTube Premium are not covered. Age ratings are a guide, so check before you press play if a title sits near your line.";
   renderPicks();
 }).catch(() => { catalogueFailed = true; renderPicks(); });
 
