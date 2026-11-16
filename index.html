@@ -89,6 +89,32 @@ form.add input { flex: 1 1 200px; }
 form.add button { background: var(--accent); color: var(--on); border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
 .addbox { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs a { padding: 9px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.view { display: flex; flex-direction: column; gap: 20px; }
+.controls { display: flex; flex-direction: column; gap: 10px; }
+.controls .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.controls .lab { color: var(--muted); font-size: 13px; min-width: 68px; }
+.count { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h3 { font-family: var(--display); font-size: 21px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
+.card .meta { font-size: 13.5px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { font-size: 12.5px; font-weight: 600; border-radius: 6px; padding: 3px 8px; background: var(--bg); border: 1px solid var(--line); }
+.badge.where { background: var(--accent-soft); border-color: transparent; }
+.badge.mature { background: var(--no); color: var(--on); border-color: transparent; }
+.card .plot { color: var(--muted); font-size: 14px; }
+.card .because { font-size: 13.5px; }
+.card .because b { font-weight: 600; }
+.card .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; }
+.card .acts button, .more { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13.5px; }
+.card .acts button.quiet { border-color: transparent; color: var(--muted); text-decoration: underline; padding-inline: 4px; }
+.card .acts button[data-r="love"] { border-color: var(--love); color: var(--love); }
+.card .acts button[data-r="like"] { border-color: var(--like); color: var(--like); }
+.more { align-self: flex-start; background: var(--accent); border-color: var(--accent); color: var(--on); font-weight: 600; font-size: 15px; padding: 9px 18px; }
+.foot { color: var(--muted); font-size: 13px; max-width: 70ch; }
 @media (max-width: 640px) {
   li.row { grid-template-columns: minmax(0, 1fr); }
   .rate { justify-content: flex-start; }
@@ -100,6 +126,31 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 <div class="wrap">
   <header>
     <h1>Movie Night Picker</h1>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#picks" id="tab-picks">Tonight's picks</a>
+      <a href="#ratings" id="tab-ratings">Your ratings</a>
+    </nav>
+    <p class="notice" id="notice" hidden></p>
+  </header>
+
+  <section class="view" id="view-picks">
+    <p class="lede">Chosen from what is streaming in South Africa, matched to what you loved and kept inside your content limits.</p>
+    <div class="controls" id="controls">
+      <div class="line"><span class="lab">Watch a</span><div class="seg" data-pref="type" role="group" aria-label="Type">
+        <button type="button" data-v="any">Movie or series</button><button type="button" data-v="movie">Movie</button><button type="button" data-v="series">Series</button></div></div>
+      <div class="line"><span class="lab">On</span><div class="seg" data-multi="prov" role="group" aria-label="Platform">
+        <button type="button" data-v="nfx">Netflix</button><button type="button" data-v="prv">Prime Video</button><button type="button" data-v="dnp">Disney+</button></div></div>
+      <div class="line"><span class="lab">In the mood for</span><div class="seg" data-pref="mood" id="moods" role="group" aria-label="Mood"></div></div>
+      <div class="line"><span class="lab">Also</span><div class="seg" role="group" aria-label="Options">
+        <button type="button" data-toggle="recent">New releases only</button><button type="button" data-toggle="mature">Include 16+ titles</button></div></div>
+    </div>
+    <p class="count" id="pick-count" aria-live="polite">Loading tonight's picks.</p>
+    <div class="cards" id="cards"></div>
+    <button type="button" class="more" id="more" hidden>Show different picks</button>
+    <p class="foot" id="foot"></p>
+  </section>
+
+  <section class="view" id="view-ratings" hidden>
     <p class="lede">Tap a rating for anything you have watched. Mark the rest as not seen, or leave them. Your answers save as you go and shape what gets recommended.</p>
     <div class="tally" aria-live="polite">
       <span><b id="n-rated">0</b>rated</span>
@@ -107,8 +158,6 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
       <span><b id="n-no">0</b>not for us</span>
       <span><b id="n-left">0</b>still to go</span>
     </div>
-    <p class="notice" id="notice" hidden></p>
-  </header>
 
   <details class="limits" id="limits" open>
     <summary>Where your line is <small>Used to filter out anything too much for you</small></summary>
@@ -147,6 +196,7 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
       <button type="submit">Add title</button>
     </form>
   </div>
+  </section>
 </div>
 
 <script>
@@ -263,7 +313,7 @@ function render() {
   $("n-left").textContent = items.length - vals.length;
 }
 function renderLimits() {
-  document.querySelectorAll(".seg").forEach(seg => seg.querySelectorAll("button").forEach(b =>
+  document.querySelectorAll(".seg[data-key]").forEach(seg => seg.querySelectorAll("button").forEach(b =>
     b.setAttribute("aria-pressed", String(settings[seg.dataset.key] === b.dataset.v))));
 }
 
@@ -276,7 +326,7 @@ function setRating(id, change) {
   if (next.r !== "no") next.why = [];
   if (!next.r && !t.custom) { delete state[id]; save("ratings/" + id, null); }
   else { state[id] = next; save("ratings/" + id, next); }
-  render();
+  render(); renderPicks();
 }
 $("list").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -305,8 +355,104 @@ $("add").addEventListener("submit", e => {
   $("add-title").value = ""; buildChips(); render();
 });
 
+/* ---------- tonight's picks ---------- */
+const PROV = { nfx: "Netflix", prv: "Prime Video", dnp: "Disney+" };
+const MOODS = [["any", "Anything"], ["comedy", "Comedy", ["Comedy"]], ["romance", "Romance", ["Romance"]],
+  ["action", "Action and adventure", ["Action", "Adventure", "Action & Adventure"]], ["mystery", "Mystery and crime", ["Mystery", "Crime", "Thriller"]],
+  ["drama", "Drama", ["Drama", "History", "War", "War & Politics"]], ["family", "Family and animation", ["Family", "Animation"]],
+  ["scifi", "Sci-fi and fantasy", ["Science Fiction", "Fantasy", "Sci-Fi & Fantasy"]], ["real", "Documentary and reality", ["Documentary", "Reality"]]];
+const PICK_SECTION = "From your picks", PAGE = 6;
+let catalogue = null, catalogueFailed = false, hidden = {}, offset = 0, openCard = null;
+let prefs = { type: "any", prov: ["nfx", "prv", "dnp"], mood: "any", mature: false, recent: false };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem("picker-prefs") || "{}")); } catch (e) {}
+MOODS.forEach(([v, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.v = v; $("moods").appendChild(b); });
+
+function ratingDoc(item) { return item.doc || "t-" + item.id; }
+function pool() {
+  const mood = MOODS.find(m => m[0] === prefs.mood), year = new Date().getFullYear();
+  return catalogue.filter(x => {
+    const s = state[ratingDoc(x)];
+    if ((s && s.r && s.r !== "unseen") || hidden[x.id]) return false;
+    if (prefs.type !== "any" && x.k !== prefs.type) return false;
+    if (!x.p.some(p => prefs.prov.includes(p))) return false;
+    if (mood && mood[2] && !x.g.some(g => mood[2].includes(g))) return false;
+    if (!prefs.mature && !(x.lv <= 2 && x.lv !== null)) return false;
+    if (prefs.recent && !(x.y >= year - 1)) return false;
+    return true;
+  });
+}
+function listNames(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
+function cardFor(x) {
+  const c = el("article", "card"); c.dataset.id = x.id;
+  c.appendChild(el("h3", "", x.t));
+  const len = x.k === "movie" ? (x.n ? Math.floor(x.n / 60) + "h " + String(x.n % 60).padStart(2, "0") + "m" : "") : (x.n ? x.n + (x.n === 1 ? " season" : " seasons") : "");
+  c.appendChild(el("span", "meta", [x.y, x.k === "movie" ? "Movie" : "Series", len, x.g.slice(0, 2).join(", ")].filter(Boolean).join(" · ")));
+  const badges = el("div", "badges");
+  x.p.forEach(p => badges.appendChild(el("span", "badge where", PROV[p])));
+  badges.appendChild(el("span", "badge" + (x.lv === 3 ? " mature" : ""), x.c ? "Rated " + x.c : "No age rating"));
+  c.appendChild(badges);
+  if (x.o) c.appendChild(el("p", "plot", x.o));
+  if (x.b && x.b.length) { const p = el("p", "because", "Because you enjoyed "); p.appendChild(el("b", "", listNames(x.b))); c.appendChild(p); }
+  const acts = el("div", "acts");
+  if (openCard === x.id) RATES.slice(0, 4).forEach(([r, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.r = r; acts.appendChild(b); });
+  else {
+    const seen = el("button", "", "Seen it"); seen.type = "button"; seen.dataset.act = "seen"; acts.appendChild(seen);
+    const skip = el("button", "quiet", "Not interested"); skip.type = "button"; skip.dataset.act = "skip"; acts.appendChild(skip);
+  }
+  c.appendChild(acts);
+  return c;
+}
+function renderPicks() {
+  document.querySelectorAll("#controls .seg[data-pref] button").forEach(b => b.setAttribute("aria-pressed", String(prefs[b.parentElement.dataset.pref] === b.dataset.v)));
+  document.querySelectorAll("#controls .seg[data-multi] button").forEach(b => b.setAttribute("aria-pressed", String(prefs.prov.includes(b.dataset.v))));
+  document.querySelectorAll("#controls [data-toggle]").forEach(b => b.setAttribute("aria-pressed", String(!!prefs[b.dataset.toggle])));
+  const cards = $("cards");
+  if (!catalogue) { $("pick-count").textContent = catalogueFailed ? "The list of streaming titles could not be loaded. Close and reopen the page to try again." : "Loading tonight's picks."; return; }
+  const p = pool();
+  if (offset >= p.length) offset = 0;
+  cards.textContent = "";
+  p.slice(offset, offset + PAGE).forEach(x => cards.appendChild(cardFor(x)));
+  $("pick-count").textContent = p.length ? "Showing " + (offset + 1) + " to " + Math.min(offset + PAGE, p.length) + " of " + p.length + " matches, best first." : "Nothing matches. Try another mood or add a platform.";
+  $("more").hidden = p.length <= PAGE;
+}
+$("controls").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const seg = b.parentElement;
+  if (seg.dataset.pref) prefs[seg.dataset.pref] = b.dataset.v;
+  else if (seg.dataset.multi) { const has = prefs.prov.includes(b.dataset.v); if (has && prefs.prov.length === 1) return; prefs.prov = has ? prefs.prov.filter(v => v !== b.dataset.v) : prefs.prov.concat(b.dataset.v); }
+  else if (b.dataset.toggle) prefs[b.dataset.toggle] = !prefs[b.dataset.toggle];
+  try { localStorage.setItem("picker-prefs", JSON.stringify(prefs)); } catch (err) {}
+  offset = 0; openCard = null; renderPicks();
+});
+$("more").addEventListener("click", () => { offset += PAGE; openCard = null; renderPicks(); $("pick-count").scrollIntoView({ block: "start" }); });
+$("cards").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const x = catalogue.find(i => i.id === b.closest(".card").dataset.id); if (!x) return;
+  if (b.dataset.act === "seen") { openCard = x.id; renderPicks(); }
+  else if (b.dataset.act === "skip") { hidden[x.id] = 1; save("hidden/" + x.id, { title: x.t, at: Date.now() }); renderPicks(); }
+  else if (b.dataset.r) {
+    openCard = null;
+    if (x.doc && TITLES[x.doc]) return setRating(x.doc, { r: b.dataset.r });
+    const id = ratingDoc(x);
+    state[id] = { title: x.t, year: x.y, kind: x.k, section: ADDED, custom: true, from: PICK_SECTION, r: b.dataset.r, why: [], at: Date.now() };
+    save("ratings/" + id, state[id]); buildChips(); render(); renderPicks();
+  }
+});
+fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
+  catalogue = d.items;
+  $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv and YouTube Premium are not covered. Age ratings are a guide, so check before you press play if a title sits near your line.";
+  renderPicks();
+}).catch(() => { catalogueFailed = true; renderPicks(); });
+
+function route() {
+  const v = location.hash === "#ratings" ? "ratings" : "picks";
+  $("view-picks").hidden = v !== "picks"; $("view-ratings").hidden = v !== "ratings";
+  ["picks", "ratings"].forEach(n => n === v ? $("tab-" + n).setAttribute("aria-current", "page") : $("tab-" + n).removeAttribute("aria-current"));
+}
+window.addEventListener("hashchange", route); route();
+
 /* ---------- boot ---------- */
-buildChips(); render(); renderLimits();
+buildChips(); render(); renderLimits(); renderPicks();
 (async () => {
   db = window.claude && window.claude.use ? await window.claude.use("db") : null;
   if (!db) { note("Ratings cannot be saved in this view. Open the page signed in to Claude to keep your answers."); return; }
@@ -318,8 +464,13 @@ buildChips(); render(); renderLimits();
     const seen = {};
     snap.docs.forEach(d => { seen[d.id] = 1; const p = "ratings/" + d.id; if (!(p in queued) && !inflight[p]) state[d.id] = d.data(); });
     Object.keys(state).forEach(id => { const p = "ratings/" + id; if (!seen[id] && !(p in queued) && !inflight[p]) delete state[id]; });
-    buildChips(); render();
+    buildChips(); render(); renderPicks();
   }, fail);
+  db.collection("hidden").limit(1000).onSnapshot(snap => {
+    const next = {}; snap.docs.forEach(d => { next[d.id] = 1; });
+    Object.keys(inflight).concat(Object.keys(queued)).forEach(p => { if (p.startsWith("hidden/")) next[p.slice(7)] = 1; });
+    hidden = next; renderPicks();
+  }, () => {});
   db.doc("settings/content").onSnapshot(snap => {
     if (inflight["settings/content"] || "settings/content" in queued) return;
     settings = snap.exists ? snap.data() : {};
