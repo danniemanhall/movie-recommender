@@ -96,6 +96,7 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 .controls { display: flex; flex-direction: column; gap: 10px; }
 .controls .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .controls .lab { color: var(--muted); font-size: 13px; min-width: 68px; }
+.pick-search { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: 100%; min-width: 0; font-size: 15px; }
 .count { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -139,6 +140,7 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 
   <section class="view" id="view-picks">
     <p class="lede">Chosen from what is streaming in South Africa, matched to what you loved and kept inside your content limits.</p>
+    <input type="search" id="pick-q" class="pick-search" placeholder="Search by title or actor" aria-label="Search picks by title or actor" autocomplete="off">
     <div class="controls" id="controls">
       <div class="line"><span class="lab">Watch a</span><div class="seg" data-pref="type" role="group" aria-label="Type">
         <button type="button" data-v="any">Movie or series</button><button type="button" data-v="movie">Movie</button><button type="button" data-v="series">Series</button></div></div>
@@ -376,6 +378,8 @@ let prefs = { type: "any", prov: ["nfx", "prv", "dnp", "dstv"], mood: "any", mat
 try { const saved = JSON.parse(localStorage.getItem("picker-prefs") || "{}"); if (saved.prov && saved.v !== 2) saved.prov.push("dstv"); Object.assign(prefs, saved, { v: 2 }); } catch (e) {}
 MOODS.forEach(([v, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.v = v; $("moods").appendChild(b); });
 
+const fold = s => (s || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+let query = "";
 function ratingDoc(item) { return item.doc || "t-" + item.id; }
 function pool() {
   const mood = MOODS.find(m => m[0] === prefs.mood), year = new Date().getFullYear();
@@ -384,8 +388,9 @@ function pool() {
     if ((s && s.r && s.r !== "unseen") || hidden[x.id]) return false;
     if (prefs.type !== "any" && x.k !== prefs.type) return false;
     if (!platforms(x).some(p => prefs.prov.includes(p))) return false;
-    if (mood && mood[2] && !x.g.some(g => mood[2].includes(g))) return false;
     if (!prefs.mature && !(x.lv <= 2 && x.lv !== null)) return false;
+    if (query) return x.find.includes(query);       // a search ignores the mood and new-releases filters
+    if (mood && mood[2] && !x.g.some(g => mood[2].includes(g))) return false;
     if (prefs.recent && !(x.y >= year - 1)) return false;
     return true;
   });
@@ -445,7 +450,9 @@ function renderPicks() {
   if (offset >= p.length) offset = 0;
   cards.textContent = "";
   p.slice(offset, offset + PAGE).forEach(x => cards.appendChild(cardFor(x)));
-  $("pick-count").textContent = p.length ? "Showing " + (offset + 1) + " to " + Math.min(offset + PAGE, p.length) + " of " + p.length + " matches, best first." : "Nothing matches. Try another mood or add a platform.";
+  $("pick-count").textContent = p.length
+    ? "Showing " + (offset + 1) + " to " + Math.min(offset + PAGE, p.length) + " of " + p.length + (query ? " results for “" + $("pick-q").value.trim() + "”, ignoring mood and new releases." : " matches, best first.")
+    : query ? "Nothing on your platforms matches “" + $("pick-q").value.trim() + "”. Titles you have already rated or hidden, and 16+ titles unless you include them, are left out." : "Nothing matches. Try another mood or add a platform.";
   $("more").hidden = p.length <= PAGE;
 }
 $("controls").addEventListener("click", e => {
@@ -457,6 +464,7 @@ $("controls").addEventListener("click", e => {
   try { localStorage.setItem("picker-prefs", JSON.stringify(prefs)); } catch (err) {}
   offset = 0; openCard = null; renderPicks();
 });
+$("pick-q").addEventListener("input", e => { query = fold(e.target.value); offset = 0; openCard = null; renderPicks(); });
 $("more").addEventListener("click", () => { offset += PAGE; openCard = null; renderPicks(); $("pick-count").scrollIntoView({ block: "start" }); });
 $("cards").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -473,6 +481,7 @@ $("cards").addEventListener("click", e => {
 });
 fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
   catalogue = d.items; catalogueVersion = d.generated;
+  catalogue.forEach(x => { x.find = " " + fold([x.t].concat(x.a || []).join(" ")) + " "; });
   $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv picks are titles airing on its channels over the following seven days, with times in South African time; DStv Stream's on-demand library and YouTube Premium are not covered. Trailers open on YouTube in a new tab. Age ratings are a guide, so check before you press play if a title sits near your line.";
   renderPicks();
 }).catch(() => { catalogueFailed = true; renderPicks(); });
