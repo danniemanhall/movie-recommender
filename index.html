@@ -97,6 +97,13 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 .controls .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .controls .lab { color: var(--muted); font-size: 13px; min-width: 68px; }
 .pick-search { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: 100%; min-width: 0; font-size: 15px; }
+.lucky { align-self: flex-start; background: var(--accent); color: var(--on); border: 0; border-radius: 999px; padding: 11px 22px; font-family: var(--display); font-weight: 700; font-size: 17px; cursor: pointer; }
+.lucky-box { border: 2px solid var(--accent); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--accent-soft); }
+.lucky-box .cards { grid-template-columns: minmax(0, 1fr); }
+.lucky-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lucky-head h2 { margin-right: auto; }
+.lucky-head button { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13.5px; }
+.lucky-head button.quiet { background: transparent; border-color: transparent; color: var(--muted); text-decoration: underline; padding-inline: 4px; }
 .count { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -156,6 +163,11 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
       <div class="line"><span class="lab">In the mood for</span><div class="seg" data-pref="mood" id="moods" role="group" aria-label="Mood"></div></div>
       <div class="line"><span class="lab">Also</span><div class="seg" role="group" aria-label="Options">
         <button type="button" data-toggle="recent">New releases only</button><button type="button" data-toggle="mature">Include 16+ titles</button></div></div>
+    </div>
+    <button type="button" class="lucky" id="lucky">Pick one for us</button>
+    <div class="lucky-box" id="lucky-box" aria-live="polite" hidden>
+      <div class="lucky-head"><h2>Tonight's pick</h2><button type="button" id="lucky-again">Pick another</button><button type="button" class="quiet" id="lucky-close">Close</button></div>
+      <div class="cards" id="lucky-cards"></div>
     </div>
     <p class="count" id="pick-count" aria-live="polite">Loading tonight's picks.</p>
     <div class="cards" id="cards"></div>
@@ -426,6 +438,26 @@ function toggleSave(x) {
   SNAP_KEYS.forEach(k => { if (x[k] != null) snap[k] = x[k]; });
   watchlist[x.id] = snap; save("watchlist/" + x.id, snap);
 }
+// Random pick: drawn from the current filters, leaning towards the best matches, and not repeating the last few.
+let luckyId = null; const luckyRecent = [];
+function drawLucky() {
+  if (!catalogue) return;
+  const all = pool(), fresh = all.filter(x => !luckyRecent.includes(x.id)), src = (fresh.length ? fresh : all).slice(0, 40);
+  if (!src.length) { luckyId = null; renderLucky(); $("pick-count").textContent = "Nothing to pick from. Try another mood or add a platform."; return; }
+  const w = src.map((_, i) => 1 / (1 + i / 8));
+  let r = Math.random() * w.reduce((a, b) => a + b, 0), i = 0;
+  for (; i < src.length - 1; i++) { if (r < w[i]) break; r -= w[i]; }
+  luckyId = src[i].id; luckyRecent.push(luckyId); if (luckyRecent.length > 15) luckyRecent.shift();
+  openCard = null; renderLucky();
+  $("lucky-box").scrollIntoView({ block: "nearest" });
+}
+function renderLucky() {
+  const x = luckyId && catalogue ? pool().find(i => i.id === luckyId) : null;
+  const box = $("lucky-cards"); box.textContent = "";
+  if (x) box.appendChild(cardFor(x));
+  $("lucky-box").hidden = !x;
+  $("lucky").hidden = !!x;            // the box has its own Pick another button
+}
 function renderWatchlist() {
   const items = Object.keys(watchlist).map(byId).filter(Boolean)
     .filter(x => { const s = state[ratingDoc(x)]; return !(s && s.r && s.r !== "unseen"); })
@@ -492,6 +524,7 @@ function renderPicks() {
     ? "Showing " + (offset + 1) + " to " + Math.min(offset + PAGE, p.length) + " of " + p.length + (query ? " results for “" + $("pick-q").value.trim() + "”, ignoring mood and new releases." : " matches, best first.")
     : query ? "Nothing on your platforms matches “" + $("pick-q").value.trim() + "”. Titles you have already rated or hidden, and 16+ titles unless you include them, are left out." : "Nothing matches. Try another mood or add a platform.";
   $("more").hidden = p.length <= PAGE;
+  renderLucky();
 }
 $("controls").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -521,6 +554,10 @@ function onCardClick(e) {
   renderPicks(); renderWatchlist();
 }
 $("cards").addEventListener("click", onCardClick);
+$("lucky-cards").addEventListener("click", onCardClick);
+$("lucky").addEventListener("click", drawLucky);
+$("lucky-again").addEventListener("click", drawLucky);
+$("lucky-close").addEventListener("click", () => { luckyId = null; renderLucky(); });
 $("wl-cards").addEventListener("click", onCardClick);
 fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
   catalogue = d.items; catalogueVersion = d.generated;
