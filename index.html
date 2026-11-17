@@ -115,6 +115,12 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
 .card .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; }
 .card .acts button, .more { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13.5px; }
 .card .acts a.trailer { background: var(--ink); color: var(--bg); border: 1px solid var(--ink); border-radius: 999px; padding: 6px 12px; font-size: 13.5px; font-weight: 600; text-decoration: none; }
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs a { white-space: nowrap; }
+@media (max-width: 640px) { .tabs a { padding-inline: 10px; } }
+.tabs .n:not(:empty) { margin-left: 6px; font-size: 12px; font-variant-numeric: tabular-nums; background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 1px 7px; }
+.card .acts button[data-act="save"][aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+.card .gone { font-size: 13.5px; color: var(--muted); font-style: italic; }
 .card .acts button.quiet { border-color: transparent; color: var(--muted); text-decoration: underline; padding-inline: 4px; }
 .card .acts button[data-r="love"] { border-color: var(--love); color: var(--love); }
 .card .acts button[data-r="like"] { border-color: var(--like); color: var(--like); }
@@ -133,6 +139,7 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
     <h1>Movie Night Picker</h1>
     <nav class="tabs" aria-label="Sections">
       <a href="#picks" id="tab-picks">Tonight's picks</a>
+      <a href="#watchlist" id="tab-watchlist">Watchlist<span class="n" id="wl-count"></span></a>
       <a href="#ratings" id="tab-ratings">Your ratings</a>
     </nav>
     <p class="notice" id="notice" hidden></p>
@@ -154,6 +161,12 @@ form.add button { background: var(--accent); color: var(--on); border: 0; border
     <div class="cards" id="cards"></div>
     <button type="button" class="more" id="more" hidden>Show different picks</button>
     <p class="foot" id="foot"></p>
+  </section>
+
+  <section class="view" id="view-watchlist" hidden>
+    <p class="lede">Picks you saved for later, newest first. A title stays here until you rate it or remove it, and everyone you share the page with sees the same list.</p>
+    <p class="empty" id="wl-empty">Nothing saved yet. Tap Save for later on any pick to keep it here.</p>
+    <div class="cards" id="wl-cards"></div>
   </section>
 
   <section class="view" id="view-ratings" hidden>
@@ -332,7 +345,7 @@ function setRating(id, change) {
   if (next.r !== "no") next.why = [];
   if (!next.r && !t.custom) { delete state[id]; save("ratings/" + id, null); }
   else { state[id] = next; save("ratings/" + id, next); }
-  render(); renderPicks();
+  render(); renderPicks(); renderWatchlist();
 }
 $("list").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -374,6 +387,8 @@ const MOODS = [["any", "Anything"], ["comedy", "Comedy", ["Comedy"]], ["romance"
   ["scifi", "Sci-fi and fantasy", ["Science Fiction", "Fantasy", "Sci-Fi & Fantasy"]], ["real", "Documentary and reality", ["Documentary", "Reality"]]];
 const PICK_SECTION = "From your picks", PAGE = 6;
 let catalogue = null, catalogueVersion = "", catalogueFailed = false, hidden = {}, offset = 0, openCard = null;
+let watchlist = {};           // id -> saved snapshot of the pick, kept in case it leaves the catalogue
+const SNAP_KEYS = ["t", "y", "k", "g", "p", "c", "lv", "za", "o", "a", "tr", "n", "doc"];
 let prefs = { type: "any", prov: ["nfx", "prv", "dnp", "dstv"], mood: "any", mature: false, recent: false, v: 2 };
 try { const saved = JSON.parse(localStorage.getItem("picker-prefs") || "{}"); if (saved.prov && saved.v !== 2) saved.prov.push("dstv"); Object.assign(prefs, saved, { v: 2 }); } catch (e) {}
 MOODS.forEach(([v, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.v = v; $("moods").appendChild(b); });
@@ -403,7 +418,24 @@ function youtubeLink(web) {
   return "intent://" + web.replace(/^https:\/\//, "") + "#Intent;scheme=https;package=com.google.android.youtube;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
 }
 function listNames(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
-function cardFor(x) {
+function byId(id) { return (catalogue && catalogue.find(i => i.id === id)) || (watchlist[id] && Object.assign({ id, g: [], p: [], gone: true }, watchlist[id])); }
+function unsave(id) { if (watchlist[id]) { delete watchlist[id]; save("watchlist/" + id, null); } }
+function toggleSave(x) {
+  if (watchlist[x.id]) return unsave(x.id);
+  const snap = { at: Date.now() };
+  SNAP_KEYS.forEach(k => { if (x[k] != null) snap[k] = x[k]; });
+  watchlist[x.id] = snap; save("watchlist/" + x.id, snap);
+}
+function renderWatchlist() {
+  const items = Object.keys(watchlist).map(byId).filter(Boolean)
+    .filter(x => { const s = state[ratingDoc(x)]; return !(s && s.r && s.r !== "unseen"); })
+    .sort((a, b) => (watchlist[b.id].at || 0) - (watchlist[a.id].at || 0));
+  const box = $("wl-cards"); box.textContent = "";
+  items.forEach(x => box.appendChild(cardFor(x, "watch")));
+  $("wl-count").textContent = items.length ? String(items.length) : "";
+  $("wl-empty").hidden = items.length > 0;
+}
+function cardFor(x, mode) {
   const card = el("article", "card"); card.dataset.id = x.id;
   const top = el("div", "top"), poster = el("div", "poster"); let c = el("div");
   if (x.ps) {
@@ -420,6 +452,7 @@ function cardFor(x) {
   badges.appendChild(el("span", "badge" + (x.lv === 3 ? " mature" : ""), x.c ? "Rated " + x.c : "No age rating"));
   if (x.za && x.za !== x.c && x.za !== "PG13") badges.appendChild(el("span", "badge", "SA rating " + x.za));
   c.appendChild(badges);
+  if (mode === "watch" && x.gone) c.appendChild(el("p", "gone", "No longer listed on your platforms this week."));
   c = card;
   const air = airings(x);
   if (air.length) { const p = el("p", "because", "On DStv: "); p.appendChild(el("b", "", airText(air[0]))); if (air[1]) p.appendChild(document.createTextNode(", then " + airText(air[1]))); c.appendChild(p); }
@@ -433,7 +466,12 @@ function cardFor(x) {
   tr.target = "_blank"; tr.rel = "noopener";
   acts.appendChild(tr);
   if (openCard === x.id) RATES.slice(0, 4).forEach(([r, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.r = r; acts.appendChild(b); });
-  else {
+  else if (mode === "watch") {
+    const seen = el("button", "", "Seen it"); seen.type = "button"; seen.dataset.act = "seen"; acts.appendChild(seen);
+    const rm = el("button", "quiet", "Remove"); rm.type = "button"; rm.dataset.act = "unsave"; acts.appendChild(rm);
+  } else {
+    const saved = !!watchlist[x.id];
+    const sv = el("button", "", saved ? "Saved" : "Save for later"); sv.type = "button"; sv.dataset.act = "save"; sv.setAttribute("aria-pressed", String(saved)); acts.appendChild(sv);
     const seen = el("button", "", "Seen it"); seen.type = "button"; seen.dataset.act = "seen"; acts.appendChild(seen);
     const skip = el("button", "quiet", "Not interested"); skip.type = "button"; skip.dataset.act = "skip"; acts.appendChild(skip);
   }
@@ -466,35 +504,42 @@ $("controls").addEventListener("click", e => {
 });
 $("pick-q").addEventListener("input", e => { query = fold(e.target.value); offset = 0; openCard = null; renderPicks(); });
 $("more").addEventListener("click", () => { offset += PAGE; openCard = null; renderPicks(); $("pick-count").scrollIntoView({ block: "start" }); });
-$("cards").addEventListener("click", e => {
+function onCardClick(e) {
   const b = e.target.closest("button"); if (!b) return;
-  const x = catalogue.find(i => i.id === b.closest(".card").dataset.id); if (!x) return;
-  if (b.dataset.act === "seen") { openCard = x.id; renderPicks(); }
-  else if (b.dataset.act === "skip") { hidden[x.id] = 1; save("hidden/" + x.id, { title: x.t, at: Date.now() }); renderPicks(); }
+  const x = byId(b.closest(".card").dataset.id); if (!x) return;
+  if (b.dataset.act === "seen") openCard = x.id;
+  else if (b.dataset.act === "save") toggleSave(x);
+  else if (b.dataset.act === "unsave") unsave(x.id);
+  else if (b.dataset.act === "skip") { hidden[x.id] = 1; save("hidden/" + x.id, { title: x.t, at: Date.now() }); unsave(x.id); }
   else if (b.dataset.r) {
-    openCard = null;
+    openCard = null; unsave(x.id);              // rating a title takes it off the watchlist
     if (x.doc && TITLES[x.doc]) return setRating(x.doc, { r: b.dataset.r });
     const id = ratingDoc(x);
     state[id] = { title: x.t, year: x.y, kind: x.k, section: ADDED, custom: true, from: PICK_SECTION, r: b.dataset.r, why: [], at: Date.now() };
-    save("ratings/" + id, state[id]); buildChips(); render(); renderPicks();
+    save("ratings/" + id, state[id]); buildChips(); render();
   }
-});
+  renderPicks(); renderWatchlist();
+}
+$("cards").addEventListener("click", onCardClick);
+$("wl-cards").addEventListener("click", onCardClick);
 fetch("catalogue.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
   catalogue = d.items; catalogueVersion = d.generated;
   catalogue.forEach(x => { x.find = " " + fold([x.t].concat(x.a || []).join(" ")) + " "; });
   $("foot").textContent = "Listings checked on " + d.generated + ". Netflix and Prime Video are the South African catalogues. Disney+ uses the UK catalogue, which is close to the South African one but not identical. DStv picks are titles airing on its channels over the following seven days, with times in South African time; DStv Stream's on-demand library and YouTube Premium are not covered. Trailers open on YouTube in a new tab. Age ratings are a guide, so check before you press play if a title sits near your line.";
-  renderPicks();
-}).catch(() => { catalogueFailed = true; renderPicks(); });
+  renderPicks(); renderWatchlist();
+}).catch(() => { catalogueFailed = true; renderPicks(); renderWatchlist(); });
 
 function route() {
-  const v = location.hash === "#ratings" ? "ratings" : "picks";
-  $("view-picks").hidden = v !== "picks"; $("view-ratings").hidden = v !== "ratings";
-  ["picks", "ratings"].forEach(n => n === v ? $("tab-" + n).setAttribute("aria-current", "page") : $("tab-" + n).removeAttribute("aria-current"));
+  const v = ["#ratings", "#watchlist"].includes(location.hash) ? location.hash.slice(1) : "picks";
+  ["picks", "watchlist", "ratings"].forEach(n => {
+    $("view-" + n).hidden = n !== v;
+    n === v ? $("tab-" + n).setAttribute("aria-current", "page") : $("tab-" + n).removeAttribute("aria-current");
+  });
 }
 window.addEventListener("hashchange", route); route();
 
 /* ---------- boot ---------- */
-buildChips(); render(); renderLimits(); renderPicks();
+buildChips(); render(); renderLimits(); renderPicks(); renderWatchlist();
 (async () => {
   db = window.claude && window.claude.use ? await window.claude.use("db") : null;
   if (!db) { note("Ratings cannot be saved in this view. Open the page signed in to Claude to keep your answers."); return; }
@@ -506,8 +551,16 @@ buildChips(); render(); renderLimits(); renderPicks();
     const seen = {};
     snap.docs.forEach(d => { seen[d.id] = 1; const p = "ratings/" + d.id; if (!(p in queued) && !inflight[p]) state[d.id] = d.data(); });
     Object.keys(state).forEach(id => { const p = "ratings/" + id; if (!seen[id] && !(p in queued) && !inflight[p]) delete state[id]; });
-    buildChips(); render(); renderPicks();
+    buildChips(); render(); renderPicks(); renderWatchlist();
   }, fail);
+  db.collection("watchlist").limit(1000).onSnapshot(snap => {
+    const next = {}; snap.docs.forEach(d => { next[d.id] = d.data(); });
+    Object.keys(inflight).concat(Object.keys(queued)).forEach(p => {
+      if (!p.startsWith("watchlist/")) return;
+      const id = p.slice(10); if (watchlist[id]) next[id] = watchlist[id]; else delete next[id];   // keep this view's unsaved changes
+    });
+    watchlist = next; renderPicks(); renderWatchlist();
+  }, () => {});
   db.collection("hidden").limit(1000).onSnapshot(snap => {
     const next = {}; snap.docs.forEach(d => { next[d.id] = 1; });
     Object.keys(inflight).concat(Object.keys(queued)).forEach(p => { if (p.startsWith("hidden/")) next[p.slice(7)] = 1; });
