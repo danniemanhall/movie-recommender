@@ -279,9 +279,21 @@ def cert_of(media, d):
 def clip(text, n=260):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0].rstrip(",.;:") + "…"
 
+def trailer_of(d):
+    """YouTube id of the best trailer: official trailers first, then any trailer, then a teaser."""
+    vids = [v for v in (d.get("videos") or {}).get("results") or [] if v.get("site") == "YouTube" and v.get("key")]
+    def rank(v):
+        return (v.get("type") == "Trailer", v.get("iso_639_1") == "en", bool(v.get("official")), v.get("published_at") or "")
+    vids = sorted((v for v in vids if v.get("type") in ("Trailer", "Teaser")), key=rank, reverse=True)
+    return vids[0]["key"] if vids else None
+
+def cast_of(d):
+    cast = sorted((d.get("credits") or {}).get("cast") or [], key=lambda c: c.get("order", 999))
+    return [c["name"] for c in cast[:4] if c.get("name")]
+
 def detail(key):
     media, tid = key
-    extra = "release_dates,keywords" if media == "movie" else "content_ratings,keywords"
+    extra = ("release_dates" if media == "movie" else "content_ratings") + ",keywords,videos,credits"
     return key, get(f"/{media}/{tid}", append_to_response=extra)
 
 items = []
@@ -325,7 +337,7 @@ for key, d in pmap(detail, short):
         "c": cert, "lv": level, "va": round(d.get("vote_average") or 0, 1),
         "o": clip((d.get("overview") or "").strip()), "s": round(score, 3), "b": why,
         "n": d.get("runtime") if media == "movie" else d.get("number_of_seasons"),
-        "d": date, "pp": d.get("poster_path"),
+        "d": date, "pp": d.get("poster_path"), "tr": trailer_of(d), "a": cast_of(d),
     }
     if t.get("dstv"):
         item["za"] = za
