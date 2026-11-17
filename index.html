@@ -390,6 +390,13 @@ function pool() {
     return true;
   });
 }
+// On Android, hand the link to the YouTube app, falling back to the browser when the app is not installed.
+// On iPhone and iPad the plain youtube.com link already opens the app when it is installed.
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+function youtubeLink(web) {
+  if (!IS_ANDROID) return web;
+  return "intent://" + web.replace(/^https:\/\//, "") + "#Intent;scheme=https;package=com.google.android.youtube;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
+}
 function listNames(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
 function cardFor(x) {
   const card = el("article", "card"); card.dataset.id = x.id;
@@ -416,8 +423,8 @@ function cardFor(x) {
   if (x.b && x.b.length) { const p = el("p", "because", "Because you enjoyed "); p.appendChild(el("b", "", listNames([...new Set(x.b)]))); c.appendChild(p); }
   const acts = el("div", "acts");
   const tr = el("a", "trailer", x.tr ? "Watch trailer" : "Find trailer");
-  tr.href = x.tr ? "https://www.youtube.com/watch?v=" + encodeURIComponent(x.tr)
-    : "https://www.youtube.com/results?search_query=" + encodeURIComponent(x.t + " " + (x.y || "") + " trailer");
+  tr.href = youtubeLink(x.tr ? "https://www.youtube.com/watch?v=" + encodeURIComponent(x.tr)
+    : "https://www.youtube.com/results?search_query=" + encodeURIComponent(x.t + " " + (x.y || "") + " trailer"));
   tr.target = "_blank"; tr.rel = "noopener";
   acts.appendChild(tr);
   if (openCard === x.id) RATES.slice(0, 4).forEach(([r, label]) => { const b = el("button", "", label); b.type = "button"; b.dataset.r = r; acts.appendChild(b); });
